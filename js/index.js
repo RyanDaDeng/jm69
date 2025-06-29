@@ -172,7 +172,7 @@ async function updateMainPage() {
             if (event.target.className !== "comics-latest") {
                 let targetElement = event.target;
                 while ((targetElement = targetElement.parentNode).className !== "book-item") {}
-                location.href = "/chapter.html?cid=" + targetElement.dataset.cid;
+                location.href = "./chapter.html?cid=" + targetElement.dataset.cid;
             }
         });
         let isLoadingComplete = true;

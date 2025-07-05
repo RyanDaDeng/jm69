@@ -99,6 +99,13 @@ getServers().then(async (servers) => {
  * @returns {Promise<Object>} 推广内容
  */
 async function getPromotionContent() {
+    let cache=localStorage.getItem('promoteCache')
+    if(cache){
+        cache=JSON.parse(cache)
+        if(cache.date===new Date().toDateString()){
+            return cache.data
+        }
+    }
     const promotionResponse = await fetch(`https://${serverInfo.Server[0]}/promote?page=1`, {
         headers: {
             token: accessToken.token,
@@ -107,7 +114,12 @@ async function getPromotionContent() {
         redirect: "follow",
     });
     const promotionData = await promotionResponse.json();
-    return decryptData(currentKey, promotionData.data);
+    const data=decryptData(currentKey, promotionData.data);
+    localStorage.setItem('promoteCache',JSON.stringify({
+        date:new Date().toDateString(),
+        data
+    }))
+    return data
 }
 
 /**
@@ -206,7 +218,7 @@ async function updateMainPage() {
             if (event.target.className !== "comics-result") {
                 let targetElement = event.target;
                 while ((targetElement = targetElement.parentNode).className !== "book-item") {}
-                location.href = "./chapter.html?cid=" + targetElement.dataset.cid;
+                open("./chapter.html?cid=" + targetElement.dataset.cid)
             }
         });
         if (searchResults.content.length < 80) {
@@ -245,6 +257,8 @@ async function updateMainPage() {
             console.log(chapter);
             setComicImages(comicId, chapter.images);
         });
+        window.addEventListener('resize',debounceFunction(setChapterTop,200))
+
     }
 }
 
@@ -261,7 +275,9 @@ function setComicInfo(comicInfo) {
     );
     coverImageElement.src = `https://${serverInfo.Server[0]}/media/albums/${comicInfo.id}_3x4.jpg`;
     coverImageElement.title = comicInfo.description;
-    document.querySelector(".title").innerHTML = comicInfo.name;
+    const titleElement=document.querySelector(".title span")
+    titleElement.innerHTML = comicInfo.name;
+    titleElement.title=comicInfo.name
     document.querySelector(".like span").innerText = `${convertToEnglishNumber(
         comicInfo.likes
     )}`;
@@ -274,11 +290,29 @@ function setComicInfo(comicInfo) {
     document.querySelector(".view span").innerText = convertToEnglishNumber(
         comicInfo.total_views
     );
+    document.querySelector('.comic-id').textContent='——'+comicInfo.id
     document.querySelector(".author").textContent =
-        comicInfo.author.join(" & ");
+        "创作者："+comicInfo.author.join(" & ");
     document.querySelector(".tags").innerHTML = comicInfo.tags.concat(comicInfo.actors)
         .map((tag) => (tag ? `<div class='tag'>${tag}</div>` : ""))
         .join("");
+    const seriesElement=document.querySelector('.series')
+    if(comicInfo.series.length){
+        seriesElement.parentNode.style.display='block'
+        seriesElement.innerHTML=comicInfo.series.map((item,index)=>`<div class="series-item" data-id="${item.id}">第${index+1}部</div>`).join('')
+        const activeEle=seriesElement.children[comicInfo.series.findIndex(i=>i.id==comicInfo.id)]
+        activeEle.classList.add('active')
+        seriesElement.scroll({
+            left:activeEle.offsetLeft-seriesElement.offsetWidth/2,
+            behavior:'smooth',
+        })
+        seriesElement.addEventListener('click',e=>{
+            if(e.target.className==='series-item'){
+                location.href='./chapter.html?cid='+e.target.dataset.id
+            }
+        })
+    }
+    
     document.querySelector(".forum h2").textContent = `评论(${convertToEnglishNumber(
         comicInfo.comment_total
     )})`;
@@ -308,7 +342,16 @@ function debounceFunction(func, delay) {
         }, delay);
     };
 }
-
+function throttle(func, limit) {
+    let inThrottle;
+    return function(...args) {
+        if (!inThrottle) {
+            func.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    };
+}
 /**
  * 根据当前时间获取最大请求数量
  * @returns {number} 最大请求数量
@@ -316,7 +359,6 @@ function debounceFunction(func, delay) {
 function getMaxRequestCount() {
     const currentDate = new Date();
     const currentHour = currentDate.getHours();
-    const currentMinute = currentDate.getMinutes();
     if (currentHour <= 3) {
         return 3;
     } else if (currentHour >= 21) {
@@ -394,6 +436,16 @@ function setComicImages(comicId, images) {
             };
             image.onload = () => {
                 loadedCount++;
+                if(loadedCount === maxRequestCount){
+                    if(Math.ceil(imageContainer.scrollTop + innerHeight) >=
+                        Math.floor(imageContainer.scrollHeight)
+                     || Math.ceil(document.documentElement.scrollTop + innerHeight) >=
+                        Math.floor(document.body.offsetHeight)
+                     || innerHeight>=document.body.offsetHeight){
+                        loadedCount = 0;
+                        loadImages()
+                    }
+                }
                 totalLoadedImages++;
                 loadedImagesElement.textContent = `${totalLoadedImages}(${Math.floor(totalLoadedImages / images.length * 100)}%)`;
                 loadedBar.style.height = `${Math.floor(totalLoadedImages / images.length * 100)}%`;
@@ -426,17 +478,32 @@ function setComicImages(comicId, images) {
         currentIndex++;
         controlBar.style.height = currentIndex / images.length * 100 + '%';
         imageIndexElement.textContent = currentIndex;
+        
+        // console.log(1111);
+        
+    }
+
+    window.addEventListener("scroll", throttle(onScrollEvent, 100));
+    window.addEventListener('scroll',debounceFunction(()=>{
         if (
             Math.ceil(document.documentElement.scrollTop + innerHeight) >=
-            document.body.offsetHeight &&
+            Math.floor(document.body.offsetHeight) - 200 &&
             loadedCount === maxRequestCount
         ) {
             loadedCount = 0;
             loadImages();
         }
-    }
-
-    window.addEventListener("scroll", debounceFunction(onScrollEvent, 100));
+    }))
+    imageContainer.addEventListener('scroll', debounceFunction(()=>{
+        if (
+            Math.ceil(imageContainer.scrollTop + innerHeight) >=
+            Math.floor(imageContainer.scrollHeight) - 200 &&
+            loadedCount === maxRequestCount
+        ) {
+            loadedCount = 0;
+            loadImages();
+        }
+    }, 100))
 }
 
 /**
@@ -520,6 +587,11 @@ function convertToEnglishNumber(num) {
  * @param {string} albumId 专辑 ID
  * @param {number} page 页码
  */
+const chapterEle=document.querySelector('.chapter')
+function setChapterTop(){
+    let top=-chapterEle.offsetHeight+innerHeight-200
+    chapterEle.style.top=(top<50?top:50)+'px'
+}
 async function loadForumComments(albumId, page) {
     const forumResponse = await fetch(
         `https://${serverInfo.Server[0]}/forum?page=${page}&mode=manhua&aid=${albumId}`,
@@ -535,11 +607,16 @@ async function loadForumComments(albumId, page) {
     const commentList = decryptData(currentKey, forumData.data).list;
     document.querySelector(".forum-inner").innerHTML += commentList
         .map((comment) => {
+            if(comment.photo==='nopic-Male.gif'){
+                comment.photo='../images/default.jpeg'
+            }else{
+                comment.photo=`https://${serverInfo.Server[0]}/media/users/${comment.photo}`
+            }
             return `
         <div class="f-item">
             <div class="user-msg">
                 <div class="user-img">
-                    <img src="https://${serverInfo.Server[0]}/media/users/${comment.photo}" alt="">
+                    <img src="${comment.photo}" alt="">
                 </div>
                 <div class="user-name">${comment.username}</div>
             </div>
@@ -548,6 +625,7 @@ async function loadForumComments(albumId, page) {
         `;
         })
         .join("");
+    setChapterTop()
 }
 
 /**
@@ -791,7 +869,7 @@ async function getComicAlbum(comicId) {
  * @returns {Promise<Object>} 漫画章节信息
  */
 async function getComicChapter(comicId) {
-    const chapterResponse = await fetch(`https://${serverInfo.Server[0]}/chapter?id=${comicId}`, {
+    const chapterResponse = await fetch(`https://${serverInfo.Server[1]}/chapter?id=${comicId}`, {
         headers: {
             token: accessToken.token,
             tokenParam: accessToken.tokenParam,
@@ -806,6 +884,8 @@ const searchButton = document.querySelector(".search");
 searchButton.addEventListener("click", () => {
     searchButton.style.display = "none";
     searchInput.parentNode.parentNode.style.display = "block";
+    searchInput.focus()
+    searchInput.parentNode.parentNode.classList.add('search-box-ani')
 });
 const searchInput = document.querySelector(".search-box input");
 searchInput.parentNode.addEventListener("submit", (event) => {

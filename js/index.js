@@ -1,11 +1,28 @@
+function checkInternet() {
+    if (!navigator.onLine) {
+        alert("没有互联网连接！！");
+        throw new Error("not online");
+    }
+}
+async function retryFetch(...args) {
+    let tryCount = args.pop();
+    try {
+        const resp = await fetch(...args);
+        return resp;
+    } catch (error) {
+        if (tryCount <= 0) throw new Error(error);
+        return retryFetch(...args, tryCount - 1);
+    }
+}
 /**
  * 从指定 URL 获取服务器信息并解密
  * @returns {Promise<Object>} 解密后的服务器信息
  */
 async function getServers() {
     // 从指定 URL 获取服务器信息文本
-    const serverDataResponse = await fetch(
-        "http://jmappc01-1308024008.cos.ap-guangzhou.myqcloud.com/server-2024.txt"
+    const serverDataResponse = await retryFetch(
+        "http://jmappc01-1308024008.cos.ap-guangzhou.myqcloud.com/server-2024.txt",
+        3
     );
     const encryptedServerData = await serverDataResponse.text();
 
@@ -99,27 +116,34 @@ getServers().then(async (servers) => {
  * @returns {Promise<Object>} 推广内容
  */
 async function getPromotionContent() {
-    let cache=localStorage.getItem('promoteCache')
-    if(cache){
-        cache=JSON.parse(cache)
-        if(cache.date===new Date().toDateString()){
-            return cache.data
+    let cache = localStorage.getItem("promoteCache");
+    if (cache) {
+        cache = JSON.parse(cache);
+        if (cache.date === new Date().toDateString()) {
+            return cache.data;
         }
     }
-    const promotionResponse = await fetch(`https://${serverInfo.Server[0]}/promote?page=1`, {
-        headers: {
-            token: accessToken.token,
-            tokenParam: accessToken.tokenParam,
+    const promotionResponse = await retryFetch(
+        `https://${serverInfo.Server[0]}/promote?page=1`,
+        {
+            headers: {
+                token: accessToken.token,
+                tokenParam: accessToken.tokenParam,
+            },
+            redirect: "follow",
         },
-        redirect: "follow",
-    });
+        3
+    );
     const promotionData = await promotionResponse.json();
-    const data=decryptData(currentKey, promotionData.data);
-    localStorage.setItem('promoteCache',JSON.stringify({
-        date:new Date().toDateString(),
-        data
-    }))
-    return data
+    const data = decryptData(currentKey, promotionData.data);
+    localStorage.setItem(
+        "promoteCache",
+        JSON.stringify({
+            date: new Date().toDateString(),
+            data,
+        })
+    );
+    return data;
 }
 
 /**
@@ -128,13 +152,17 @@ async function getPromotionContent() {
  * @returns {Promise<Object>} 最新内容
  */
 async function getLatestContent(page) {
-    const latestResponse = await fetch(`https://${serverInfo.Server[0]}/latest?page=${page}`, {
-        headers: {
-            token: accessToken.token,
-            tokenParam: accessToken.tokenParam,
+    const latestResponse = await retryFetch(
+        `https://${serverInfo.Server[0]}/latest?page=${page}`,
+        {
+            headers: {
+                token: accessToken.token,
+                tokenParam: accessToken.tokenParam,
+            },
+            redirect: "follow",
         },
-        redirect: "follow",
-    });
+        3
+    );
     const latestData = await latestResponse.json();
     return decryptData(currentKey, latestData.data);
 }
@@ -146,7 +174,7 @@ async function getLatestContent(page) {
  * @returns {Promise<Object>} 搜索结果
  */
 async function getSearchResults(searchQuery, page) {
-    const searchResponse = await fetch(
+    const searchResponse = await retryFetch(
         `https://${serverInfo.Server[0]}/search?search_query=${searchQuery}&o=mv&page=${page}`,
         {
             headers: {
@@ -154,111 +182,165 @@ async function getSearchResults(searchQuery, page) {
                 tokenParam: accessToken.tokenParam,
             },
             redirect: "follow",
-        }
+        },
+        3
     );
     const searchData = await searchResponse.json();
     return decryptData(currentKey, searchData.data);
 }
 
+function createIntersectionObserver() {
+    const observer = new IntersectionObserver((entries) => {
+        for (let entry of entries) {
+            if (entry.isIntersecting) {
+                observer.unobserve(entry.target);
+                entry.target.classList.remove("b-waiting");
+                const cover = entry.target.children[0];
+                const coverImg = cover.children[0];
+                coverImg.src = cover.dataset.src;
+            }
+        }
+    });
+    return observer;
+}
+function infinityScroll(observer, parent, loadContent) {
+    let isLoadingComplete = true;
+    let currentPage = 1;
+    for (let item of parent.querySelectorAll(".b-waiting")) {
+        observer.observe(item);
+    }
+    function onScrollEvent() {
+        if (
+            Math.ceil(document.documentElement.scrollTop + innerHeight) >=
+                document.body.offsetHeight &&
+            isLoadingComplete
+        ) {
+            isLoadingComplete = false;
+            loadContent(++currentPage, removeScrollEvent).then(() => {
+                isLoadingComplete = true;
+                for (let item of parent.querySelectorAll(".b-waiting")) {
+                    observer.observe(item);
+                }
+            });
+        }
+    }
+    function removeScrollEvent() {
+        window.removeEventListener("scroll", onScrollEvent);
+    }
+    window.addEventListener("scroll", onScrollEvent);
+}
 /**
  * 更新主页面内容
  */
-async function updateMainPage() {
-    if (location.pathname.includes("/index.html") || location.pathname === "/") {
-        // 获取推广内容
-        const promotionContent = await getPromotionContent();
-        const mainElement = document.querySelector(".main");
-        mainElement.innerHTML = promotionContent
-            .map((promotion) => {
-                return createComicPromotionHTML(promotion);
-            })
-            .join("");
-        // 添加事件监听器
-        addEventListeners();
-    } else if (location.pathname.includes("/latest.html")) {
-        // 获取第一页最新内容
-        const latestContent = await getLatestContent(1);
-        const latestComicsElement = document.querySelector(".comics-latest");
-        latestComicsElement.innerHTML = createBookItemsHTML(latestContent);
-        latestComicsElement.addEventListener("click", (event) => {
-            if (event.target.className !== "comics-latest") {
-                let targetElement = event.target;
-                while ((targetElement = targetElement.parentNode).className !== "book-item") {}
-                location.href = "./chapter.html?cid=" + targetElement.dataset.cid;
-            }
-        });
-        let isLoadingComplete = true;
-        let currentPage = 1;
-        window.addEventListener('scroll', () => {
-            if (
-                Math.ceil(document.documentElement.scrollTop + innerHeight) >=
-                document.body.offsetHeight &&
-                isLoadingComplete
-            ) {
-                isLoadingComplete = false;
-                getLatestContent(++currentPage).then((newLatestContent) => {
-                    latestComicsElement.innerHTML += createBookItemsHTML(newLatestContent);
-                    isLoadingComplete = true;
-                });
-            }
-        });
-    } else if (location.pathname.includes("/search.html")) {
-        const searchQuery = new URLSearchParams(location.search).get("wd");
-        if (!searchQuery) {
-            return alert("不能搜索空气！！！");
-        }
-        if (Number.isInteger(+searchQuery) && searchQuery > 10000) {
-            location.href = "./chapter.html?cid=" + searchQuery;
-        }
-        // 获取第一页搜索结果
-        const searchResults = await getSearchResults(searchQuery, 1);
-        const searchResultsElement = document.querySelector(".comics-result");
-        searchResultsElement.innerHTML = createBookItemsHTML(searchResults.content);
-        searchResultsElement.addEventListener("click", (event) => {
-            if (event.target.className !== "comics-result") {
-                let targetElement = event.target;
-                while ((targetElement = targetElement.parentNode).className !== "book-item") {}
-                open("./chapter.html?cid=" + targetElement.dataset.cid)
-            }
-        });
-        if (searchResults.content.length < 80) {
-            return;
-        }
-        let isLoadingComplete = true;
-        let currentPage = 1;
-        window.addEventListener('scroll', () => {
-            if (
-                Math.ceil(document.documentElement.scrollTop + innerHeight) >=
-                document.body.offsetHeight &&
-                isLoadingComplete
-            ) {
-                isLoadingComplete = false;
-                getSearchResults(searchQuery, ++currentPage).then((newSearchResults) => {
-                    searchResultsElement.innerHTML += createBookItemsHTML(newSearchResults.content);
-                    if (newSearchResults.content.length < 80) {
-                        return;
-                    }
-                    isLoadingComplete = true;
-                });
-            }
-        });
-    } else if (location.pathname.includes("/chapter.html")) {
-        const comicId = new URLSearchParams(location.search).get("cid");
-        if (!Number.isInteger(+comicId)) {
-            return alert("comic-id格式错误！！！");
-        }
-        // 获取漫画专辑信息
-        getComicAlbum(comicId).then((comicInfo) => {
-            console.log(comicInfo);
-            setComicInfo(comicInfo);
-        });
-        // 获取漫画章节信息
-        getComicChapter(comicId).then((chapter) => {
-            console.log(chapter);
-            setComicImages(comicId, chapter.images);
-        });
-        window.addEventListener('resize',debounceFunction(setChapterTop,200))
+async function updateIndexPage() {
+    // 获取推广内容
+    const promotionContent = await getPromotionContent();
+    const mainElement = document.querySelector(".main");
+    mainElement.innerHTML = promotionContent
+        .map((promotion) => {
+            return createComicPromotionHTML(promotion);
+        })
+        .join("");
+    // 添加事件监听器
+    addEventListeners();
+}
+async function updateLatestPage() {
+    // 获取第一页最新内容
+    const latestContent = await getLatestContent(1);
+    const latestComicsElement = document.querySelector(".comics-latest");
+    latestComicsElement.innerHTML = createBookItemsHTML(latestContent);
+    const observer = createIntersectionObserver();
 
+    latestComicsElement.addEventListener("click", (event) => {
+        if (event.target.className !== "comics-latest") {
+            let targetElement = event.target;
+            while (
+                (targetElement = targetElement.parentNode).className !==
+                "book-item"
+            ) {}
+            location.href = "./chapter.html?cid=" + targetElement.dataset.cid;
+        }
+    });
+    infinityScroll(observer, latestComicsElement, async (currentPage) => {
+        const newLatestContent = await getLatestContent(currentPage);
+        latestComicsElement.innerHTML += createBookItemsHTML(newLatestContent);
+    });
+}
+async function updateSearchPage() {
+    const searchQuery = new URLSearchParams(location.search).get("wd");
+    if (!searchQuery) {
+        location.href = "./index.html";
+    }
+
+    // 获取第一页搜索结果
+    const searchResults = await getSearchResults(searchQuery, 1);
+    const searchResultsElement = document.querySelector(".comics-result");
+    const noMoreEle = searchResultsElement.nextElementSibling;
+    searchResultsElement.innerHTML = createBookItemsHTML(searchResults.content);
+    const observer = createIntersectionObserver();
+    const resultLength = 80;
+    searchResultsElement.addEventListener("click", (event) => {
+        if (event.target.className !== "comics-result") {
+            let targetElement = event.target;
+            while (
+                (targetElement = targetElement.parentNode).className !==
+                "book-item"
+            ) {}
+            open("./chapter.html?cid=" + targetElement.dataset.cid);
+        }
+    });
+    if (searchResults.content.length < resultLength) {
+        for (let item of searchResultsElement.querySelectorAll(".b-waiting")) {
+            observer.observe(item);
+        }
+        noMoreEle.style.display = "block";
+        return;
+    }
+    infinityScroll(
+        observer,
+        searchResultsElement,
+        async (currentPage, removeScrollEvent) => {
+            const result = await getSearchResults(searchQuery, currentPage);
+            searchResultsElement.innerHTML += createBookItemsHTML(
+                result.content
+            );
+            if (result.content.length < resultLength) {
+                removeScrollEvent();
+                noMoreEle.style.display = "block";
+            }
+        }
+    );
+}
+function updateChapterPage() {
+    const comicId = new URLSearchParams(location.search).get("cid");
+    if (!Number.isInteger(+comicId) && comicId >= 10) {
+        alert("comic-id格式错误！！！");
+        location.href = "./index.html";
+    }
+    // 获取漫画专辑信息
+    getComicAlbum(comicId).then((comicInfo) => {
+        console.log(comicInfo);
+        setComicInfo(comicInfo);
+    });
+    // 获取漫画章节信息
+    getComicChapter(comicId).then((chapter) => {
+        console.log(chapter);
+        setComicImages(comicId, chapter.images);
+    });
+    window.addEventListener("resize", debounceFunction(setChapterTop, 200));
+}
+function updateMainPage() {
+    if (
+        location.pathname.includes("/index.html") ||
+        location.pathname === "/"
+    ) {
+        updateIndexPage();
+    } else if (location.pathname.includes("/latest.html")) {
+        updateLatestPage();
+    } else if (location.pathname.includes("/search.html")) {
+        updateSearchPage();
+    } else if (location.pathname.includes("/chapter.html")) {
+        updateChapterPage();
     }
 }
 
@@ -270,58 +352,66 @@ function setComicInfo(comicInfo) {
     document.querySelector(
         ".comic-bg"
     ).style.backgroundImage = `url(https://${serverInfo.Server[0]}/media/albums/${comicInfo.id}_3x4.jpg)`;
-    const coverImageElement = document.querySelector(
-        ".cover img"
-    );
+    const coverImageElement = document.querySelector(".cover img");
     coverImageElement.src = `https://${serverInfo.Server[0]}/media/albums/${comicInfo.id}_3x4.jpg`;
     coverImageElement.title = comicInfo.description;
-    const titleElement=document.querySelector(".title span")
+    const titleElement = document.querySelector(".title span");
     titleElement.innerHTML = comicInfo.name;
-    titleElement.title=comicInfo.name
+    titleElement.title = comicInfo.name;
     document.querySelector(".like span").innerText = `${convertToEnglishNumber(
         comicInfo.likes
     )}`;
-    document.querySelector(".like i").innerText = `(${
-        Math.floor(
-            (comicInfo.likes ? comicInfo.likes : 0) /
-            (+comicInfo.total_views ? comicInfo.total_views : 1) * 100
-        )
-    }%)`;
+    document.querySelector(".like i").innerText = `(${Math.floor(
+        ((comicInfo.likes ? comicInfo.likes : 0) /
+            (+comicInfo.total_views ? comicInfo.total_views : 1)) *
+            100
+    )}%)`;
     document.querySelector(".view span").innerText = convertToEnglishNumber(
         comicInfo.total_views
     );
-    document.querySelector('.comic-id').textContent='——'+comicInfo.id
+    document.querySelector(".comic-id").textContent = "——" + comicInfo.id;
     document.querySelector(".author").textContent =
-        "创作者："+comicInfo.author.join(" & ");
-    document.querySelector(".tags").innerHTML = comicInfo.tags.concat(comicInfo.actors)
+        "创作者：" + comicInfo.author.join(" & ");
+    document.querySelector(".tags").innerHTML = comicInfo.tags
+        .concat(comicInfo.actors)
         .map((tag) => (tag ? `<div class='tag'>${tag}</div>` : ""))
         .join("");
-    const seriesElement=document.querySelector('.series')
-    if(comicInfo.series.length){
-        seriesElement.parentNode.style.display='block'
-        seriesElement.innerHTML=comicInfo.series.map((item,index)=>`<div class="series-item" data-id="${item.id}">第${index+1}部</div>`).join('')
-        const activeEle=seriesElement.children[comicInfo.series.findIndex(i=>i.id==comicInfo.id)]
-        activeEle.classList.add('active')
+    const seriesElement = document.querySelector(".series");
+    if (comicInfo.series.length) {
+        seriesElement.parentNode.style.display = "block";
+        seriesElement.innerHTML = comicInfo.series
+            .map(
+                (item, index) =>
+                    `<div class="series-item" data-id="${item.id}">第${
+                        index + 1
+                    }部</div>`
+            )
+            .join("");
+        const activeEle =
+            seriesElement.children[
+                comicInfo.series.findIndex((i) => i.id == comicInfo.id)
+            ];
+        activeEle.classList.add("active");
         seriesElement.scroll({
-            left:activeEle.offsetLeft-seriesElement.offsetWidth/2,
-            behavior:'smooth',
-        })
-        seriesElement.addEventListener('click',e=>{
-            if(e.target.className==='series-item'){
-                location.href='./chapter.html?cid='+e.target.dataset.id
+            left: activeEle.offsetLeft - seriesElement.offsetWidth / 2,
+            behavior: "smooth",
+        });
+        seriesElement.addEventListener("click", (e) => {
+            if (e.target.className === "series-item") {
+                location.href = "./chapter.html?cid=" + e.target.dataset.id;
             }
-        })
+        });
     }
-    
-    document.querySelector(".forum h2").textContent = `评论(${convertToEnglishNumber(
-        comicInfo.comment_total
-    )})`;
+
+    document.querySelector(
+        ".forum h2"
+    ).textContent = `评论(${convertToEnglishNumber(comicInfo.comment_total)})`;
     let currentForumPage = 1;
-    const loadMoreButton = document.querySelector('.load-more-c');
-    loadMoreButton.addEventListener('click', () => {
-        loadMoreButton.style.display = 'none';
+    const loadMoreButton = document.querySelector(".load-more-c");
+    loadMoreButton.addEventListener("click", () => {
+        loadMoreButton.style.display = "none";
         loadForumComments(comicInfo.id, ++currentForumPage).then(() => {
-            loadMoreButton.style.display = 'block';
+            loadMoreButton.style.display = "block";
         });
     });
     loadForumComments(comicInfo.id, 1);
@@ -344,11 +434,11 @@ function debounceFunction(func, delay) {
 }
 function throttle(func, limit) {
     let inThrottle;
-    return function(...args) {
+    return function (...args) {
         if (!inThrottle) {
             func.apply(this, args);
             inThrottle = true;
-            setTimeout(() => inThrottle = false, limit);
+            setTimeout(() => (inThrottle = false), limit);
         }
     };
 }
@@ -360,13 +450,13 @@ function getMaxRequestCount() {
     const currentDate = new Date();
     const currentHour = currentDate.getHours();
     if (currentHour <= 3) {
-        return 3;
+        return 1;
     } else if (currentHour >= 21) {
         return 1;
     } else if (currentHour >= 18) {
-        return 5;
+        return 3;
     }
-    return 10;
+    return 5;
 }
 
 /**
@@ -375,25 +465,24 @@ function getMaxRequestCount() {
  * @param {Array<string>} images 图片列表
  */
 function setComicImages(comicId, images) {
-    let currentPage = 0;
-    let maxRequestCount = getMaxRequestCount();
-    const imageContainer = document.querySelector(".comic-imgs");
-    const totalImagesElement = document.querySelector('.imgs-num');
-    const loadedImagesElement = document.querySelector('.imgs-loaded-num');
-    const controlBar = document.querySelector('.control-bar');
-    const imageIndexElement = controlBar.children[0];
-    const loadedBar = document.querySelector('.loaded-bar');
-    totalImagesElement.textContent = images.length;
-
-    let totalLoadedImages = 0;
-    let loadedCount = 0;
+    const imagesContainer = document.querySelector(".comic-imgs");
+    const imagesNumberEle = document.querySelector(".imgs-num");
+    const imagesLoadNumberEle = document.querySelector(".imgs-loaded-num");
+    const controlCanvas = document.querySelector(".control-inner canvas");
+    const controlBar = document.querySelector(".control-bar");
+    const controlIndex = controlBar.children[0];
+    const ctx = controlCanvas.getContext("2d");
+    const maxRequestCount = getMaxRequestCount();
+    let loadingImgCount = 0;
+    let loadedImgCount = 0;
+    const waitingImgs = [];
+    const maxWaitingCount = 3;
     const resizeObserver = new ResizeObserver((entries) => {
         for (let entry of entries) {
             if (entry.target.height > 0) {
                 resizeObserver.unobserve(entry.target);
                 let imageElement = entry.target.parentNode;
-                imageElement.children[0].textContent += ' loading...';
-                imageElement.style.height = entry.target.height + 'px';
+                imageElement.style.height = entry.target.height + "px";
                 imageElement.ontransitionend = () => {
                     imageElement.ontransitionend = null;
                     imageElement.style.height = null;
@@ -401,111 +490,201 @@ function setComicImages(comicId, images) {
             }
         }
     });
+    const intersectionObserver = new IntersectionObserver(
+        (entries) => {
+            // console.log(entries);
 
-    /**
-     * 加载图片
-     */
-    function loadImages() {
-        if (currentPage === images.length) {
-            return;
-        }
-        let nextPage = currentPage + maxRequestCount;
-        if (nextPage > images.length) {
-            nextPage = images.length;
-        }
-        const slicedImages = images.slice(currentPage, nextPage);
-        currentPage = nextPage;
-        slicedImages.forEach((imageName) => {
-            const imageDiv = document.createElement("div");
-            imageDiv.className = "image";
-            imageDiv.style.height = '500px';
-            const imageBg = document.createElement('div');
-            imageBg.className = 'image-bg';
-            imageBg.textContent = imageName;
-            imageDiv.append(imageBg);
-            const image = new Image();
-            image.src = `https://${serverInfo.imgServer[0]}/media/photos/${comicId}/${imageName}`;
-            imageDiv.append(image);
-            imageContainer.append(imageDiv);
-
-            image.onerror = () => {
-                loadedCount++;
-                image.onerror = null;
-                imageDiv.classList.add('errer-img');
-                imageBg.textContent = 'img errer';
-            };
-            image.onload = () => {
-                loadedCount++;
-                if(loadedCount === maxRequestCount){
-                    if(Math.ceil(imageContainer.scrollTop + innerHeight) >=
-                        Math.floor(imageContainer.scrollHeight)
-                     || Math.ceil(document.documentElement.scrollTop + innerHeight) >=
-                        Math.floor(document.body.offsetHeight)
-                     || innerHeight>=document.body.offsetHeight){
-                        loadedCount = 0;
-                        loadImages()
+            for (let entry of entries) {
+                if (entry.isIntersecting) {
+                    // intersectionObserver.unobserve(entry.target)
+                    const index = +entry.target.dataset.index + 1;
+                    controlBar.style.top = (index / DomCount) * 100 + "%";
+                    controlIndex.textContent = index;
+                    if (entry.target.dataset.isIntersected) continue;
+                    entry.target.dataset.isIntersected = "true";
+                    const imgDom = entry.target.children[1];
+                    const imgBg = entry.target.children[0];
+                    if (loadingImgCount >= maxRequestCount) {
+                        imgBg.textContent += " 排队中...";
+                        waitingImgs.unshift(entry.target);
+                        if (waitingImgs.length > maxWaitingCount) {
+                            const ele = waitingImgs.pop();
+                            ele.dataset.isIntersected = "";
+                        }
+                    } else {
+                        _loadImg(entry.target);
                     }
+
+                    imgDom.onload = () => {
+                        loadedImgCount++;
+                        loadingImgCount--;
+                        imagesLoadNumberEle.textContent = `${loadedImgCount}(${(
+                            (loadedImgCount / DomCount) *
+                            100
+                        ).toFixed(2)}%)`;
+                        // console.log(imgDom,comicId,
+                        resizeObserver.unobserve(imgDom);
+                        entry.target.style.height = imgDom.height + "px";
+                        if (comicId >= 220980 && !/.gif/.test(images[index])) {
+                            const page = images[index - 1].substring(0, 5);
+                            entry.target.append(
+                                cutImage(imgDom, comicId, page)
+                            );
+                            imgDom.remove();
+                        }
+
+                        imgBg.remove();
+                        _drawImgLoadEnd(index - 1);
+                        const waitingImg = waitingImgs.pop();
+                        if (!waitingImg) return;
+                        _loadImg(waitingImg);
+                    };
+                    imgDom.onerror = () => {
+                        loadingImgCount--;
+                        entry.target.classList.add("error-img");
+                        _drawImgLoadError(index - 1);
+                        entry.target.addEventListener(
+                            "click",
+                            () => {
+                                imgDom.src = entry.target.dataset.src;
+                                imgBg.textContent = "加载中...";
+                                entry.target.classList.remove("error-img");
+                            },
+                            {
+                                once: true,
+                            }
+                        );
+                        imgBg.textContent = "错误(点击重试)";
+                    };
                 }
-                totalLoadedImages++;
-                loadedImagesElement.textContent = `${totalLoadedImages}(${Math.floor(totalLoadedImages / images.length * 100)}%)`;
-                loadedBar.style.height = `${Math.floor(totalLoadedImages / images.length * 100)}%`;
-                image.onload = null;
-                imageBg.remove();
-                resizeObserver.unobserve(image);
-                imageDiv.style.height = null;
-                if (comicId < 220980 || /.gif/.test(imageName)) return;
-                image.parentNode.append(cutImage(image, comicId, imageName.slice(0, 5)));
-                image.remove();
-            };
-            resizeObserver.observe(image);
-        });
-    }
-
-    loadImages();
-
-    /**
-     * 滚动事件处理函数
-     */
-    function onScrollEvent() {
-        let currentIndex = 0;
-        for (let i = 0; i < imageContainer.children.length; i++) {
-            let rect = imageContainer.children[i].getBoundingClientRect();
-            if (rect.top + rect.height > 0) {
-                currentIndex = i;
-                break;
             }
+        },
+        {
+            rootMargin: "50px",
         }
-        currentIndex++;
-        controlBar.style.height = currentIndex / images.length * 100 + '%';
-        imageIndexElement.textContent = currentIndex;
-        
-        // console.log(1111);
-        
+    );
+    const DomCount = images.length;
+    const oneFrame = 10;
+    let curCount = 0;
+
+    imagesNumberEle.textContent = DomCount;
+    function _loadImg(imgContainer) {
+        const imgDom = imgContainer.children[1];
+        const imgBg = imgContainer.children[0];
+        imgBg.textContent = "加载中...";
+        resizeObserver.observe(imgDom);
+        imgDom.src = imgContainer.dataset.src;
+        loadingImgCount++;
     }
+    function _set() {
+        for (let i = 0; i < oneFrame; i++) {
+            const imgContainer = document.createElement("div");
+            const imgBg = document.createElement("div");
+            const imgDom = new Image();
+            imgContainer.className = "image";
+            imgContainer.style.height = "500px";
+            imgContainer.dataset.src = `https://${serverInfo.imgServer[0]}/media/photos/${comicId}/${images[curCount]}`;
+            imgContainer.dataset.index = curCount;
+            intersectionObserver.observe(imgContainer);
+            imgBg.className = "image-bg";
+            imgBg.textContent = curCount + 1;
+            imgContainer.append(imgBg, imgDom);
+            imagesContainer.append(imgContainer);
+            // _drawDomLoadEnd(curCount)
+            curCount++;
 
-    window.addEventListener("scroll", throttle(onScrollEvent, 100));
-    window.addEventListener('scroll',debounceFunction(()=>{
-        if (
-            Math.ceil(document.documentElement.scrollTop + innerHeight) >=
-            Math.floor(document.body.offsetHeight) - 200 &&
-            loadedCount === maxRequestCount
-        ) {
-            loadedCount = 0;
-            loadImages();
+            if (curCount === DomCount) return;
         }
-    }))
-    imageContainer.addEventListener('scroll', debounceFunction(()=>{
-        if (
-            Math.ceil(imageContainer.scrollTop + innerHeight) >=
-            Math.floor(imageContainer.scrollHeight) - 200 &&
-            loadedCount === maxRequestCount
-        ) {
-            loadedCount = 0;
-            loadImages();
+        // ctx.fill()
+        if (curCount < DomCount) requestAnimationFrame(_set);
+    }
+    const chunkHeight = controlCanvas.height / DomCount;
+    // console.log(chunkHeight);
+
+    function _drawImgLoadEnd(index) {
+        ctx.fillStyle = "#db547c";
+        ctx.fillRect(
+            0,
+            Math.floor(index * chunkHeight),
+            controlCanvas.width,
+            Math.ceil(chunkHeight)
+        );
+    }
+    function _drawImgLoadError(index) {
+        ctx.fillStyle = "#ff0000";
+        ctx.fillRect(
+            0,
+            Math.floor(index * chunkHeight),
+            controlCanvas.width,
+            Math.ceil(chunkHeight)
+        );
+    }
+    let elementTop = 0;
+    let touchY = 0;
+    function dragStart(y) {
+        // console.log('start',y);
+        controlIndex.classList.add("draging");
+        let progress = y / controlCanvas.offsetHeight;
+        controlIndex.textContent = Math.ceil(progress * (DomCount - 1)) + 1;
+        controlBar.style.top = progress * 100 + "%";
+    }
+    function draging(y) {
+        if (y < 0) y = 0;
+        else if (y > controlCanvas.offsetHeight) y = controlCanvas.offsetHeight;
+        let progress = y / controlCanvas.offsetHeight;
+        controlIndex.textContent = Math.ceil(progress * (DomCount - 1)) + 1;
+        controlBar.style.top = progress * 100 + "%";
+    }
+    function dragEnd(y) {
+        controlIndex.classList.remove("draging");
+        if (y < 0) y = 0;
+        else if (y > controlCanvas.offsetHeight) y = controlCanvas.offsetHeight;
+        let progress = y / controlCanvas.offsetHeight;
+        const ele =
+            imagesContainer.children[Math.ceil(progress * (DomCount - 1))];
+        if (ele) ele.scrollIntoView();
+    }
+    function onMouseMove(e) {
+        draging(e.clientY - elementTop);
+    }
+    function onMouseUp(e) {
+        dragEnd(e.clientY - elementTop);
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+    }
+    controlCanvas.addEventListener("mousedown", (e) => {
+        elementTop = controlCanvas.getBoundingClientRect().top;
+        dragStart(e.layerY);
+        window.addEventListener("mousemove", onMouseMove);
+        window.addEventListener("mouseup", onMouseUp);
+    });
+    controlCanvas.addEventListener(
+        "touchstart",
+        (e) => {
+            elementTop = controlCanvas.getBoundingClientRect().top;
+            touchY = e.touches[0].clientY - elementTop;
+            dragStart(touchY);
+            e.preventDefault();
+        },
+        {
+            passive: false,
         }
-    }, 100))
+    );
+    controlCanvas.addEventListener(
+        "touchmove",
+        (e) => {
+            touchY = e.touches[0].clientY - elementTop;
+            draging(touchY);
+        },
+        {
+            passive: false,
+        }
+    );
+    controlCanvas.addEventListener("touchend", (e) => {
+        dragEnd(touchY);
+    });
+    _set();
 }
-
 /**
  * 裁剪图片
  * @param {HTMLImageElement} image 图片元素
@@ -587,13 +766,13 @@ function convertToEnglishNumber(num) {
  * @param {string} albumId 专辑 ID
  * @param {number} page 页码
  */
-const chapterEle=document.querySelector('.chapter')
-function setChapterTop(){
-    let top=-chapterEle.offsetHeight+innerHeight-200
-    chapterEle.style.top=(top<50?top:50)+'px'
+const chapterEle = document.querySelector(".chapter");
+function setChapterTop() {
+    let top = -chapterEle.offsetHeight + innerHeight - 200;
+    chapterEle.style.top = (top < 50 ? top : 50) + "px";
 }
 async function loadForumComments(albumId, page) {
-    const forumResponse = await fetch(
+    const forumResponse = await retryFetch(
         `https://${serverInfo.Server[0]}/forum?page=${page}&mode=manhua&aid=${albumId}`,
         {
             headers: {
@@ -601,16 +780,17 @@ async function loadForumComments(albumId, page) {
                 tokenParam: accessToken.tokenParam,
             },
             redirect: "follow",
-        }
+        },
+        3
     );
     const forumData = await forumResponse.json();
     const commentList = decryptData(currentKey, forumData.data).list;
     document.querySelector(".forum-inner").innerHTML += commentList
         .map((comment) => {
-            if(comment.photo==='nopic-Male.gif'){
-                comment.photo='../images/default.jpeg'
-            }else{
-                comment.photo=`https://${serverInfo.Server[0]}/media/users/${comment.photo}`
+            if (comment.photo === "nopic-Male.gif") {
+                comment.photo = "./images/default.jpeg";
+            } else {
+                comment.photo = `https://${serverInfo.Server[0]}/media/users/${comment.photo}`;
             }
             return `
         <div class="f-item">
@@ -625,7 +805,7 @@ async function loadForumComments(albumId, page) {
         `;
         })
         .join("");
-    setChapterTop()
+    setChapterTop();
 }
 
 /**
@@ -637,20 +817,13 @@ function createBookItemsHTML(content) {
     return content
         .map((bookData) => {
             return `
-        <div class="book-item" data-cid="${bookData.id}">
-            <div class="b-cover">
-                <img
-                    src="https://${serverInfo.Server[0]}/media/albums/${bookData.id}_3x4.jpg"
-                    alt=""
-                />
+        <div class="book-item b-waiting" data-cid="${bookData.id}">
+            <div class="b-cover" data-src="https://${serverInfo.Server[0]}/media/albums/${bookData.id}_3x4.jpg">
+                <img alt="封面" />
             </div>
             <div class="b-right">
-                <div class="b-title">
-                    <span>${bookData.name}</span>
-                </div>
-                <div class="b-anchor">
-                    <span>${bookData.author}</span>
-                </div>
+                <div class="b-title">${bookData.name}</div>
+                <div class="b-anchor">${bookData.author}</div>
             </div>
         </div>
         `;
@@ -684,17 +857,21 @@ function createComicPromotionHTML(promotion) {
  * 为推广元素添加事件监听器
  * @param {HTMLElement} element 推广元素
  */
-function addPromotionEvent(element) {
+function addPromotionEvent(element, observer) {
     let currentLeft = 0;
     let itemCount = 15;
     const scrollBarInner = element.querySelector(".bar-inner");
     const nextButton = element.querySelector(".next-btn");
     const innerElement = element.querySelector(".inner");
+    for (let item of innerElement.children) {
+        observer.observe(item);
+    }
     nextButton.addEventListener("click", () => {
         if (currentLeft === itemCount - 1) return;
         currentLeft++;
         innerElement.style.transform = `translateX(-${currentLeft * 300}px)`;
-        scrollBarInner.style.marginLeft = currentLeft * ((1 / itemCount) * 100) + "%";
+        scrollBarInner.style.marginLeft =
+            currentLeft * ((1 / itemCount) * 100) + "%";
     });
     scrollBarInner.style.width = (1 / itemCount) * 100 + "%";
     let startX = 0;
@@ -725,8 +902,11 @@ function addPromotionEvent(element) {
         if (!isMouseDown) return;
         event.preventDefault();
         deltaX = event.pageX - startX;
-        innerElement.style.transform = `translateX(-${currentLeft * 300 - deltaX}px)`;
-        scrollBarInner.style.marginLeft = (currentLeft - deltaX / 300) * ((1 / itemCount) * 100) + "%";
+        innerElement.style.transform = `translateX(-${
+            currentLeft * 300 - deltaX
+        }px)`;
+        scrollBarInner.style.marginLeft =
+            (currentLeft - deltaX / 300) * ((1 / itemCount) * 100) + "%";
     }
 
     /**
@@ -739,19 +919,27 @@ function addPromotionEvent(element) {
         innerElement.style.transition = null;
         scrollBarInner.style.transition = null;
         if (Math.abs(deltaX) > 50) {
-            currentLeft -= Math.round(deltaX / 300);
-            if (currentLeft > itemCount) currentLeft = itemCount - 1;
+            if (deltaX > 0) {
+                currentLeft -= Math.ceil(deltaX / 300);
+            } else {
+                currentLeft -= Math.floor(deltaX / 300);
+            }
+            if (currentLeft > itemCount - 1) currentLeft = itemCount - 1;
             else if (currentLeft < 0) currentLeft = 0;
         }
         if (Math.abs(deltaX) < 5 && Date.now() - clickStartTime < 200) {
             let targetElement = event.target;
             if (targetElement.className !== "inner") {
-                while ((targetElement = targetElement.parentNode).className !== "book-item") {}
-                location.href = "./chapter.html?cid=" + targetElement.dataset.cid;
+                while (
+                    (targetElement = targetElement.parentNode).className !==
+                    "book-item"
+                ) {}
+                open("./chapter.html?cid=" + targetElement.dataset.cid);
             }
         }
         innerElement.style.transform = `translateX(-${currentLeft * 300}px)`;
-        scrollBarInner.style.marginLeft = currentLeft * ((1 / itemCount) * 100) + "%";
+        scrollBarInner.style.marginLeft =
+            currentLeft * ((1 / itemCount) * 100) + "%";
         deltaX = 0;
         startX = 0;
     }
@@ -776,6 +964,8 @@ function addPromotionEvent(element) {
                     isHorizontalDrag = true;
                 } else {
                     isMouseDown = false;
+                    innerElement.style.transition = null;
+                    scrollBarInner.style.transition = null;
                 }
             },
             { once: true, passive: true }
@@ -793,8 +983,11 @@ function addPromotionEvent(element) {
             event.preventDefault();
         }
         deltaX = event.touches[0].pageX - startX;
-        innerElement.style.transform = `translateX(-${currentLeft * 300 - deltaX}px)`;
-        scrollBarInner.style.marginLeft = (currentLeft - deltaX / 300) * ((1 / itemCount) * 100) + "%";
+        innerElement.style.transform = `translateX(-${
+            currentLeft * 300 - deltaX
+        }px)`;
+        scrollBarInner.style.marginLeft =
+            (currentLeft - deltaX / 300) * ((1 / itemCount) * 100) + "%";
     }
 
     /**
@@ -807,19 +1000,27 @@ function addPromotionEvent(element) {
         innerElement.style.transition = null;
         scrollBarInner.style.transition = null;
         if (Math.abs(deltaX) > 50) {
-            currentLeft -= Math.round(deltaX / 300);
-            if (currentLeft > itemCount) currentLeft = itemCount - 1;
+            if (deltaX > 0) {
+                currentLeft -= Math.ceil(deltaX / 300);
+            } else {
+                currentLeft -= Math.floor(deltaX / 300);
+            }
+            if (currentLeft > itemCount - 1) currentLeft = itemCount - 1;
             else if (currentLeft < 0) currentLeft = 0;
         }
         if (Math.abs(deltaX) < 5 && Date.now() - clickStartTime < 200) {
             let targetElement = event.target;
             if (targetElement.className !== "inner") {
-                while ((targetElement = targetElement.parentNode).className !== "book-item") {}
-                location.href = "./chapter.html?cid=" + targetElement.dataset.cid;
+                while (
+                    (targetElement = targetElement.parentNode).className !==
+                    "book-item"
+                ) {}
+                open("./chapter.html?cid=" + targetElement.dataset.cid);
             }
         }
         innerElement.style.transform = `translateX(-${currentLeft * 300}px)`;
-        scrollBarInner.style.marginLeft = currentLeft * ((1 / itemCount) * 100) + "%";
+        scrollBarInner.style.marginLeft =
+            currentLeft * ((1 / itemCount) * 100) + "%";
         deltaX = 0;
         startX = 0;
     }
@@ -830,7 +1031,9 @@ function addPromotionEvent(element) {
     innerElement.addEventListener("touchstart", onTouchDown, {
         passive: true,
     });
-    innerElement.addEventListener("touchmove", onTouchMove);
+    innerElement.addEventListener("touchmove", onTouchMove, {
+        cancelable: false,
+    });
     innerElement.addEventListener("touchend", onTouchUp, {
         passive: true,
     });
@@ -841,8 +1044,19 @@ function addPromotionEvent(element) {
  */
 function addEventListeners() {
     const promotionElements = document.querySelectorAll(".comic-promote");
+    const observer = new IntersectionObserver((entries) => {
+        for (let entry of entries) {
+            if (entry.isIntersecting) {
+                observer.unobserve(entry.target);
+                entry.target.classList.remove("b-waiting");
+                const cover = entry.target.children[0];
+                const coverImg = cover.children[0];
+                coverImg.src = cover.dataset.src;
+            }
+        }
+    });
     promotionElements.forEach((element) => {
-        addPromotionEvent(element);
+        addPromotionEvent(element, observer);
     });
 }
 
@@ -852,13 +1066,17 @@ function addEventListeners() {
  * @returns {Promise<Object>} 漫画专辑信息
  */
 async function getComicAlbum(comicId) {
-    const albumResponse = await fetch(`https://${serverInfo.Server[0]}/album?id=${comicId}`, {
-        headers: {
-            token: accessToken.token,
-            tokenParam: accessToken.tokenParam,
+    const albumResponse = await retryFetch(
+        `https://${serverInfo.Server[0]}/album?id=${comicId}`,
+        {
+            headers: {
+                token: accessToken.token,
+                tokenParam: accessToken.tokenParam,
+            },
+            redirect: "follow",
         },
-        redirect: "follow",
-    });
+        3
+    );
     const albumData = await albumResponse.json();
     return decryptData(currentKey, albumData.data);
 }
@@ -869,13 +1087,17 @@ async function getComicAlbum(comicId) {
  * @returns {Promise<Object>} 漫画章节信息
  */
 async function getComicChapter(comicId) {
-    const chapterResponse = await fetch(`https://${serverInfo.Server[1]}/chapter?id=${comicId}`, {
-        headers: {
-            token: accessToken.token,
-            tokenParam: accessToken.tokenParam,
+    const chapterResponse = await retryFetch(
+        `https://${serverInfo.Server[1]}/chapter?id=${comicId}`,
+        {
+            headers: {
+                token: accessToken.token,
+                tokenParam: accessToken.tokenParam,
+            },
+            redirect: "follow",
         },
-        redirect: "follow",
-    });
+        3
+    );
     const chapterData = await chapterResponse.json();
     return decryptData(currentKey, chapterData.data);
 }
@@ -884,12 +1106,22 @@ const searchButton = document.querySelector(".search");
 searchButton.addEventListener("click", () => {
     searchButton.style.display = "none";
     searchInput.parentNode.parentNode.style.display = "block";
-    searchInput.focus()
-    searchInput.parentNode.parentNode.classList.add('search-box-ani')
+    searchInput.focus();
+    searchInput.parentNode.parentNode.classList.add("search-box-ani");
 });
 const searchInput = document.querySelector(".search-box input");
 searchInput.parentNode.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (searchInput.value === "") return;
-    location.href = "./search.html?wd=" + searchInput.value.replace(" ", "");
+    const searchQuery = searchInput.value;
+    if (searchQuery === "") return;
+    location.href = "./search.html?wd=" + searchQuery.replace(" ", "");
+    if (Number.isInteger(+searchQuery) && searchQuery >= 10) {
+        location.href = "./chapter.html?cid=" + searchQuery;
+    }
+});
+document.querySelector(".p-title").addEventListener("click", () => {
+    scrollTo({
+        top: 0,
+        behavior: "smooth",
+    });
 });

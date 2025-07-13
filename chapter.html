@@ -98,7 +98,7 @@
                 </div>
                 <div class="imgs-control">
                     <div class="control-inner">
-                        <div class="loaded-bar"></div>
+                        <canvas width="30" height="200"></canvas>
                     </div>
                     <div class="control-bar">
                         <div class="img-index">1</div>
@@ -107,6 +107,10 @@
                 <div class="comic-imgs"></div>
                 
             </div>
+        </div>
+        <div class="r-menu">
+            <div class="go-to-top"></div>
+            <div class="reload"></div>
         </div>
         <script async="async">
             const img_container=document.querySelector('.comic-imgs')
@@ -121,6 +125,15 @@
                         img_container.classList.remove('fs')
                     }
                 })
+            document.querySelector('.go-to-top').addEventListener('click',()=>{
+                scrollTo({
+                    top:0,
+                    behavior:"smooth"
+                })
+            })
+            document.querySelector('.reload').addEventListener('click',()=>{
+                location.reload()
+            })
         </script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"></script>
         <script src="./js/index.js"></script>

@@ -63,6 +63,7 @@ body{
 .p-title {
   height: auto !important;
   margin: auto;
+  cursor: pointer;
 }
 .search-box{
   display: none;
@@ -211,6 +212,7 @@ input::placeholder{
 .scroll-bar{
   width: 100%;
   height: 10px;
+  overflow: hidden;
 }
 .bar-inner{
   width: 30%;
@@ -239,7 +241,7 @@ input::placeholder{
 }
 .book-item {
   width: 290px;
-  height: 150px;
+  height: 135px;
   border: 1px solid #ddd;
   border-radius: 5px;
   box-shadow: 0 1px 3px #ddd;
@@ -304,11 +306,12 @@ input::placeholder{
   position: fixed;
   right: 0;
   bottom: 100px;
-  width: 40px;
+  width: 50px;
   background-color: #fff;
   filter:drop-shadow(0 0 5px #db547c);
   border-radius: 7.5px 0 0 7.5px;
   z-index: 9;
+  padding: 5px;
 }
 .r-menu::before,.r-menu::after{
   display: block;
@@ -327,14 +330,19 @@ input::placeholder{
   background:radial-gradient(circle at 0 100%,transparent 0 70%,#fff 70% 100%);
 }
 .reload{
-  width: 100%;
-  height: 40px;
   background: url(../images/reload.svg) center/80% no-repeat;
 }
-.filter{
+.go-to-top{
+  margin-bottom: 5px;
+  background: url(../images/top.svg) 7.5px center/62% no-repeat;
+}
+.r-menu div{
   width: 100%;
   height: 40px;
-  background: url(../images/filter.svg) center/65% no-repeat;
+  border-radius: 5px;
+}
+.r-menu div:hover{
+  background-color: #b8005f;
 }
 .comics-latest,.comics-result{
   width: 100%;
@@ -345,6 +353,11 @@ input::placeholder{
 }
 .comics-latest .book-item,.comics-result .book-item{
   margin-right: 0;
+}
+.no-more{
+  color: #ffb7cd;
+  text-align: center;
+  display: none;
 }
 .main-chapter{
   display: flex;
@@ -368,7 +381,7 @@ input::placeholder{
   width: 100%;
   height: 300px;
   color: #fff;
-  background: url(https://www.cdnmhwscc.vip/media/albums/145170_3x4.jpg) center/cover no-repeat;
+  background: center/cover no-repeat;
 }
 .full-blur{
   width: 100%;
@@ -427,7 +440,7 @@ input::placeholder{
   height: 100%;
   object-fit: cover;
   border-radius: 5px;
-  box-shadow: 0 0 10px 5px #6d4d5b;
+  box-shadow: 0 0 0 5px #db547c;
 }
 
 .like svg,.view svg{
@@ -498,41 +511,35 @@ input::placeholder{
 .imgs-control{
   width: 30px;
   height: 200px;
-  border-radius: 15px;
+  border-radius: 5px;
   position: sticky;
   top: 130px;
   margin-top: 200px;
   margin-left: calc(100% - 40px);
-  background-color: #808080;
+  background-color: #ffceee;
+  /* overflow: hidden; */
   /* background: #db547c repeating-linear-gradient(to bottom,#ffa6ca 0 1px,transparent 1px 10px) repeat; */
-  padding: 15px 0;
   z-index: 9;
   /* overflow-y: hidden; */
-  background: linear-gradient(to bottom,#f792b1,#b8005f);
+  /* background: linear-gradient(to bottom,#f792b1,#b8005f); */
+  cursor: move;
 }
 .control-inner{
-  position: absolute;
-  top: 15px;
   width: 100%;
-  height: 170px;
-
+  height: 100%;
+  border-radius: 5px;
+  overflow: hidden;
 }
-.loaded-bar{
+.control-inner canvas{
   width: 100%;
-  height: 170px;
-  /* border-radius: 15px;
-  background-color: rgb(255, 59, 150,.5); */
-  border-bottom: 1px solid #b8005f;
+  height: 100%;
 }
 .control-bar{
-  position: relative;
-  height: 50%;
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
-  border-bottom: 1px solid #ffa6ca;
-  /* border-radius: 15px; */
-}
-.imgs-control:hover{
-  opacity: .1;
+  border-bottom: 1px solid #b8005f;
 }
 .control-bar::after{
   content: '';
@@ -552,6 +559,11 @@ input::placeholder{
   color: #b8005f;
   text-shadow: 1px 1px 0 #fff;
   line-height: 18px;
+  transition: scale .1s;
+}
+.draging{
+  scale: 2;
+  right: calc(100% + 26px);
 }
 .image{
   position: relative;
@@ -566,10 +578,10 @@ input::placeholder{
   z-index: 1;
   position: relative;
 }
-.errer-img{
+.error-img{
   min-height: 500px;
 }
-.errer-img .image-bg{
+.error-img .image-bg{
   border-color: #ff0000;
 }
 .image-bg{
@@ -589,7 +601,7 @@ input::placeholder{
 }
 .more{
   /* background-image: linear-gradient(to bottom, #db547c, transparent 150px); */
-  background: linear-gradient(to bottom, #db547c, transparent 150px),url(../images/樱.png) center/200px;
+  background: linear-gradient(to bottom, #db547c, transparent 150px),url(../images/bg.jpeg) center/200px;
   width: 100%;
   padding: 20px;
   position: relative;
@@ -702,6 +714,7 @@ input::placeholder{
 .f-text{
   color: #b8005f;
   padding: 5px 60px;
+  line-break: anywhere;
 }
 @media screen and (max-width:1200px){
   .comics-latest .book-item,.comics-result .book-item{
@@ -710,6 +723,7 @@ input::placeholder{
   .main-chapter{
     width: 100%;
     display: block;
+    border: none;
   }
   .chapter{
     width: 100%;

@@ -15,7 +15,7 @@ body{
   position: fixed;
   top: 0;
   left: 0;
-  z-index: 9;
+  z-index: 11;
 }
 .menu,.search {
   background: center/50% 50% no-repeat;
@@ -172,26 +172,7 @@ input::placeholder{
   width: 100%;
   padding: 60px 5px;
 }
-@media screen and (min-width:800px) {
-  .search-box{
-    display: block;
-  }
-  .menu{
-    display: none;
-  }
-  .search{
-    display: none;
-  }
-  .p-title{
-    margin: auto 10px;
-  }
-  .category{
-    display: flex;
-  }
-  .main{
-    padding: 60px 5%;
-  }
-}
+
     
 
 .scroll-block{
@@ -344,15 +325,35 @@ input::placeholder{
 .r-menu div:hover{
   background-color: #b8005f;
 }
-.comics-latest,.comics-result{
+.comics-latest,.comics-result,.comics-collect{
   width: 100%;
   display: flex;
   flex-wrap: wrap;
   flex-shrink: 0;
   justify-content: space-around;
 }
-.comics-latest .book-item,.comics-result .book-item{
+.comics-latest .book-item,.comics-result .book-item,.comics-collect .book-item{
   margin-right: 0;
+}
+@media screen and (min-width:800px) {
+  .search-box{
+    display: block;
+  }
+  .menu{
+    display: none;
+  }
+  .search{
+    display: none;
+  }
+  .p-title{
+    margin: auto 10px;
+  }
+  .category{
+    display: flex;
+  }
+  .main{
+    padding: 60px 5%;
+  }
 }
 .no-more{
   color: #ffb7cd;
@@ -368,7 +369,35 @@ input::placeholder{
   border:5px solid #ff8fc6;
   border-top: none;
 }
+.loading-container{
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(91, 0, 30, 0.757);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+}
+.loading {
+  width: 50px;
+  height: 50px;
+  border: 5px solid #ff3556;
+  border-top-color: transparent;
+  border-radius: 100%;
+  animation: circle infinite 0.75s linear;
+}
 
+@keyframes circle {
+  0% {
+    transform: rotate(0);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
 
 .chapter{
   width: 50%;
@@ -616,9 +645,70 @@ input::placeholder{
   font-weight: 700;
   z-index: -1;
 }
-@media screen and (max-width:560px){
+.functions{
+  display: flex;
+  width: fit-content;
+  height: 50px;
+  /* border-radius: 5px; */
+  /* overflow: hidden; */
+  /* margin: auto; */
+  margin-top: 20px;
+  font-size: 20px;
+}
+.read,.collect{
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  cursor: pointer;
+}
+.read{
+  width: 150px;
+  color: #fff;
+  background-color: #db547c;
+  border-radius: 5px;
+}
+.collect {
+  width: 50px;
+  border-radius: 5px;
+  background-color: #ffa3bf;
+  margin-left: 5px;
+}
+.collect svg{
+  width: 50%;
+  height: 50%;
+  fill: transparent;
+  transition: fill .1s;
+}
+.collect:hover svg{
+  /* fill: #db547c; */
+  animation: jump .3s;
+}
+.isCollect svg{
+  fill:#db547c
+}
+@keyframes jump {
+  0%{
+    transform: translateY(0);
+  }
+  50%{
+    transform: translateY(-5px);
+  }
+  100%{
+    transform: translateY(0);
+  }
+}
+@media screen and (max-width:600px){
   .more{
     padding: 10px;
+  }
+  .comics-latest .book-item,.comics-result .book-item,.comics-collect .book-item{
+    width: 100%;
+  }
+}
+@media screen and (min-width:601px) and (max-width:980px){
+  .comics-latest .book-item,.comics-result .book-item,.comics-collect .book-item{
+    width: 49%;
   }
 }
 .author{
@@ -717,9 +807,6 @@ input::placeholder{
   line-break: anywhere;
 }
 @media screen and (max-width:1200px){
-  .comics-latest .book-item,.comics-result .book-item{
-    width: 100%;
-  }
   .main-chapter{
     width: 100%;
     display: block;

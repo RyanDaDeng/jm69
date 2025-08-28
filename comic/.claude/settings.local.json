@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/mnt/d/workspace/jmcomic-web_JMComic-Viewer/**)",
+      "WebSearch",
+      "Bash(sed:*)",
+      "Bash(php artisan make:migration:*)",
+      "Bash(php artisan tinker:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

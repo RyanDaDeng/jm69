@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+body {
+  @apply bg-gray-900;
+}
+
+/* Custom container with smaller max width */
+.container {
+  @apply mx-auto;
+  max-width: 1280px !important; /* Was ~1536px on 2xl screens */
+}
+
+@screen xl {
+  .container {
+    max-width: 1200px !important;
+  }
+}
+
+@screen 2xl {
+  .container {
+    max-width: 1280px !important; /* Keep same as xl for consistency */
+  }
+}

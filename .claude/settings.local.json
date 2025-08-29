@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(grep:*)",
-      "Bash(php artisan make:migration:*)"
+      "Bash(php artisan make:migration:*)",
+      "Bash(identify:*)",
+      "Bash(find:*)",
+      "Bash(npm install)",
+      "Bash(npm run dev:*)"
     ],
     "deny": [],
     "ask": []

@@ -8,7 +8,9 @@
       "Bash(npm install)",
       "Bash(npm run dev:*)",
       "Read(//**)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npx vue-tsc:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []
